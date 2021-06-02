@@ -1,0 +1,15 @@
+﻿Number,Model,Loss,DB,Modality,Test,Comment
+1,BaseDenseSe,Triplet,SMMD,"Vis,The",0,BaseNet
+2,BaseDenseSe,Triplet,SMMD,"Vis,IRR",0,BaseNet
+3,BaseDenseSe,Triplet,SMMD,"The,IRR",0,BaseNet
+4,BaseDenseSe,Triplet,IRIS,"Vis,The",0,BaseNet
+5,BaseDenseSe,Triplet,CASIA,"Vis,IRR",0,BaseNet
+6,BaseDenseSe,Triplet,SMMD,"Vis,The",0,DO75
+7,BaseDenseSe,Triplet,SMMD,"Vis,IRR",0,DO75
+8,BaseDenseSe,Triplet,SMMD,"The,IRR",0,DO75
+9,BaseDenseSe,Triplet,IRIS,"Vis,The",0,DO75
+10,BaseDenseSe,Triplet,CASIA,"Vis,IRR",0,DO75
+12,DenseCMD,Triplet,SMMD,"Vis,The",0,DenseCMD
+14,DenseCMD,Triplet,SMMD,"Vis,IRR",0,DenseCMD
+16,DenseCMD,Triplet,IRIS,"Vis,The",1,DenseCMD
+18,DenseCMD,Triplet,CASIA,"Vis,IRR",1,DenseCMD
