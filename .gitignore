@@ -13,6 +13,8 @@ develop-eggs/
 dist/
 downloads/
 eggs/
+Logs/
+Models/
 .eggs/
 lib/
 lib64/
@@ -54,7 +56,7 @@ coverage.xml
 # Translations
 *.mo
 *.pot
-
+*.pth
 # Django stuff:
 *.log
 local_settings.py
