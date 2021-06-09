@@ -1,13 +1,13 @@
 import DataLoader as DataLoader
 from densenetpytorch import My_SE_DenseNet, My_Modules
-from Train import train, train_CMD_Dense
+from Train import train, train_CMD_Dense, train_CMDCIND_Dense
 import csv
 
 def create_info_dic(model, loss, db, modality, Cmnt):
     # model, loss, db, modality
     info_dic = dict()
     info_dic['epochs'] = 400
-    info_dic['batch_s'] = 192
+    info_dic['batch_s'] = 60
     info_dic['data_dir'] = r'E:\Work\Cross Modality FR 2\Numpy Data'
     info_dic['subset'] = ' Train '
     
@@ -34,6 +34,11 @@ def train_network(info_dic):
         model = My_SE_DenseNet.my_se_densenet121_g32(256)
         cmd_net = My_Modules.CMD(256)
         net = train_CMD_Dense(data_loader, [model, cmd_net], info_dic)
+    elif info_dic['model'] == 'DenseCMDCIND':
+        model = My_SE_DenseNet.my_se_densenet121_g32(256, cind = True)
+        cmd_net = My_Modules.CMD(256)
+        cind_net = My_Modules.CIND()
+        net = train_CMDCIND_Dense(data_loader, [model, cind_net, cmd_net], info_dic)
 
     del  data_loader, model, net
 

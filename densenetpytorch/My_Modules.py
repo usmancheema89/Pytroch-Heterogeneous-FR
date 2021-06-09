@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
 import torch
+import numpy as np
 
 class CMD_BLOCK(nn.Module):
     def __init__(self,emb_s=256):
@@ -28,6 +29,52 @@ class CMD_BLOCK(nn.Module):
         x = self.dropout(x)
         x = self.L4(x)
         # x = self.sig_class(x)
+        return x
+
+class CIND_Block(nn.Module):
+    def __init__(self, dim = 7):
+        super(CIND_Block,self).__init__()
+        in_ch = 2048 
+        n_ch = 256
+        self.dim = dim
+        # self.op_1 = CIN_diff
+        self.cnv1 = nn.Conv2d(n_ch, n_ch, 5, 5)
+        self.cnv2 = nn.Conv2d(n_ch, n_ch, 3)
+        self.cnv3 = nn.Conv2d(n_ch, n_ch, 3)
+        self.relu = nn.ReLU(inplace=True)
+        self.bn = nn.BatchNorm2d(n_ch)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.L1 = nn.Linear(n_ch, 1)
+        
+    def forward(self, x):
+
+        # x = self.op_1(x)
+        x = self.cnv1(x)
+        x = self.relu(x)
+        x = self.cnv2(x)
+        x = self.relu(x)
+        x = self.cnv3(x)
+        x = self.relu(x)
+        x = self.bn(x)
+        x = self.avgpool(x)
+        #dropout Flatten, Dense, Lambda
+        x = x.view(x.size(0), -1)
+        x = self.L1(x)
+
+        return x
+
+class CIND(nn.Module):
+    def __init__(self):
+        super(CIND, self).__init__()
+        cind_block = CIND_Block
+        self.f_block = self._make_layers(cind_block)
+
+    def _make_layers(self,block):
+        layers = []
+        layers.append(block())
+        return nn.Sequential(*layers)
+    def forward(self, x):
+        x = self.f_block(x)
         return x
 
 class CMD(nn.Module):
@@ -58,6 +105,7 @@ class EmbfixLayer(nn.Module):
             ),2).reshape(-1,x.size()[1]*2)
         return x
 
+
 def CMDLoss(input, target):
     # edit targets
     no_img = target.size()[0]
@@ -67,15 +115,93 @@ def CMDLoss(input, target):
     loss = nn.BCEWithLogitsLoss()
     return loss(input, target_mat)
 
-# cmd = CMD(4)
+def CMD_Lbl_maker(target): #(1744, 1)
+    if not torch.is_tensor(target):
+            target = torch.tensor(target)
+    no_img = target.size()[0]
+    t = target.view((-1))
+    t_v = torch.transpose(t.tile(1,no_img),0,1)
+    t_h = t.view(no_img,1).tile(1,no_img).view(no_img*no_img,1)
+    t = torch.eq(t_v, t_h).type(torch.FloatTensor).to(torch.device('cuda'))
+    return t
 
-# x = torch.tensor([[1, 1, 1, 1], [2, -100, -100, 2],[3, 1, 1, 3], [4, -100, -100, 4]])
-# y_true = torch.tensor([1, 2, 1, 2]).type(torch.FloatTensor)
-# y_pred = cmd(x)
+def CIN_diff(target): #(32 128 7 7)
+    scale = 5
+    upsam_op = torch.nn.Upsample(scale_factor=scale,mode='nearest') ## fixit
+    pading = torch.nn.ZeroPad2d(2)
+    
+    # A to B tiling the batch dimension
+    x_r = torch.tile(target,(target.size()[0],1,1,1)) # 123,123,123
+    x_l = torch.tile(target,(1,target.size()[0],1,1)).view(-1,target.size()[1],target.size()[2],target.size()[3]) #111,222,333
+    
+    # tiling in the spacial dimension
+    x_l = upsam_op(x_l)
+    
+    x_r = pading(x_r)
+    slice_x = []
+    slice_y = []
+    for x_i in range(2, x_r.size()[2] -2):
+        for x_j in range(2, x_r.size()[3]-2):
+            slice_y.append(x_r[:,:,x_i-2:x_i+3,x_j-2:x_j+3])
+            # print(x_i, x_j)
+            # print(x_r[0,0,x_i-2:x_i+3,x_j-2:x_j+3])        
+        slice_x.append(torch.cat(slice_y,dim=3))
+        slice_y= []
 
-# print(x)
-# print(y_true)
-# print(y_pred)
+    x_r = torch.cat(slice_x,dim=2)
 
-# loss = CMDLoss(y_pred,y_true)
-# print(loss)
+
+    diff = torch.sub(x_l,x_r)
+
+    # B to A tiling the batch dimension
+    x_l = torch.tile(target,(target.size()[0],1,1,1)) # 123,123,123
+    x_r = torch.tile(target,(1,target.size()[0],1,1)).view(-1,target.size()[1],target.size()[2],target.size()[3]) #111,222,333
+    
+    # tiling in the spacial dimension
+    x_l = upsam_op(x_l)
+    
+    x_r = pading(x_r)
+    slice_x = []
+    slice_y = []
+    for x_i in range(2, x_r.size()[2] -2):
+        for x_j in range(2, x_r.size()[3]-2):
+            slice_y.append(x_r[:,:,x_i-2:x_i+3,x_j-2:x_j+3])     
+        slice_x.append(torch.cat(slice_y,dim=3))
+        slice_y= []
+    x_r = torch.cat(slice_x,dim=2)
+
+    diff = torch.cat((torch.sub(x_l,x_r),diff),dim=1)
+
+
+
+
+    # for x_i in range(2, x_r.size()[2] -2):
+    #     for x_j in range(2, x_r.size()[3]-2):
+    #         slice_y.append(x_r[:,:,x_i-2:x_i+3,x_j-2:x_j+3])
+    #         print(x_i, x_j)
+    #         print(x_r[0,0,x_i-2:x_i+3,x_j-2:x_j+3])
+    #         print(x_l[0,0,x_i-2:x_i+3,x_j-2:x_j+3])
+
+    return diff
+
+def CINDLoss(input, target):
+    ## NEEDS TO BE IMPLEMENTED
+    # x_r = torch.tile(target,(target.size()[0],1,1,1)) # 123,123,123
+    # x_l = torch.tile(target,(1,target.size()[0],1,1)).view(-1,target.size()[1],target.size()[2],target.size()[3]) #111,222,333
+
+    no_img = target.size()[0]
+    t_v = torch.transpose(target.tile(1,no_img),0,1)
+    t_h = target.view(no_img,1).tile(1,no_img).view(no_img*no_img,1)
+    target_mat = torch.eq(t_v, t_h).type(torch.FloatTensor).to(torch.device('cuda'))
+
+
+    loss = nn.BCEWithLogitsLoss()
+    return loss(input, target_mat)
+
+# dim = 7
+# ch = 128
+# emb = 400
+# x = torch.arange(0,emb * ch* dim * dim).view([emb, ch, dim, dim]).type(torch.float)
+# y = CIND_Block()
+# x =  y(x)
+

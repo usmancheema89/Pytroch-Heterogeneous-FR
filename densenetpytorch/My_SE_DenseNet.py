@@ -96,14 +96,14 @@ class Transition(nn.Module):
 
 class My_SE_DenseNet(nn.Module):
     def __init__(self, growthRate=32, head7x7=True, dropOut=.4,
-                 increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=256):
+                 increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=256, cind = False):
         """ Constructor
         Args:
             layers: config of layers, e.g., (6, 12, 24, 16)
             num_classes: number of classes
         """
         super(My_SE_DenseNet, self).__init__()
-
+        self.cind = cind
         block = DenseBottleneck
         se_block = SEBottleneck
         self.growthRate = growthRate
@@ -124,6 +124,7 @@ class My_SE_DenseNet(nn.Module):
             self.bn3 = nn.BatchNorm2d(headplanes * 2)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.red_conv = nn.Conv2d(1024, 128, 1, 1)
 
         # Dense-Block 1 and transition (56x56)
         self.dense1 = self._make_layer(block, layers[0])
@@ -227,7 +228,7 @@ class My_SE_DenseNet(nn.Module):
         x = self.se4(x)
         x = self.bn(x)
         x = self.relu(x)
-
+        cind = self.red_conv(x)
         #add Activation
         x = self.avgpool(x)
         #dropout Flatten, Dense, Lambda
@@ -235,8 +236,9 @@ class My_SE_DenseNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         x = F.normalize(x,p=2,dim=1)
-        return x
-
+        if not self.cind:
+            return x
+        return x, cind
 
 def se_densenet(growthRate=32, head7x7=True, dropOut=0,
                 increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=1000):
@@ -259,10 +261,10 @@ def se_densenet(growthRate=32, head7x7=True, dropOut=0,
                         num_classes=num_classes)
     return model
 
-def my_se_densenet121_g32(classes):
+def my_se_densenet121_g32(classes, cind= False):
     model = My_SE_DenseNet(growthRate=32, head7x7=True, dropOut=0,
                         increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16),
-                        num_classes=classes)
+                        num_classes=classes,cind= cind)
                 # (self, growthRate=32, head7x7=True, dropRate=0,
                 # increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=1000)
     
@@ -270,7 +272,7 @@ def my_se_densenet121_g32(classes):
 
 # model = my_se_densenet121_g32(50)
 
-# x = torch.rand(128, 3, 256, 256)
+# x = torch.rand(128, 3, 224, 224)
 # y = model(x)
 
 # print(y)

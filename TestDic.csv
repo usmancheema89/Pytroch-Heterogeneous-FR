@@ -9,7 +9,7 @@
 8,BaseDenseSe,Triplet,SMMD,"The,IRR",0,DO75
 9,BaseDenseSe,Triplet,IRIS,"Vis,The",0,DO75
 10,BaseDenseSe,Triplet,CASIA,"Vis,IRR",0,DO75
-12,DenseCMD,Triplet,SMMD,"Vis,The",0,DenseCMD
-14,DenseCMD,Triplet,SMMD,"Vis,IRR",0,DenseCMD
+12,DenseCMD,Triplet,SMMD,"Vis,The",1,DenseCMD
+14,DenseCMD,Triplet,SMMD,"Vis,IRR",1,DenseCMD
 16,DenseCMD,Triplet,IRIS,"Vis,The",1,DenseCMD
 18,DenseCMD,Triplet,CASIA,"Vis,IRR",1,DenseCMD

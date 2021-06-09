@@ -13,11 +13,92 @@ def triplet_margin_loss():
                 embedding_regularizer = RegularFaceRegularizer())
     miner = miners.MultiSimilarityMiner()
     return loss_func, miner
+    
 # def create_dic(names, models):
 #     model_dic = dict()
 #     for i in range(len(names)):
 #         model_dic[names[i]] = models[i]
 # return model_dic
+
+def train_CMDCIND_Dense(dataloader, net, info_dic):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device1 = torch.device("cuda:1")
+    if torch.cuda.device_count() > 1:
+        GPUnet = nn.DataParallel(net[0]).to(device)
+        cindnet = nn.DataParallel(net[1]).to(device)
+        cmdnet = nn.DataParallel(net[2]).to(device)
+
+    criterion, miner = triplet_margin_loss()
+    cmd_criterion = My_Modules.CMDLoss
+    cind_criterion = My_Modules.CINDLoss
+    parameters = list(GPUnet.parameters()) + list(cmdnet.parameters()) + list(cindnet.parameters() ) 
+    optimizer = optim.Adam(parameters, lr=0.03)
+    tb_writer = SummaryWriter(log_dir=r'./Logs/'+info_dic['run_name'])
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
+                    # ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=6, threshold=0.01, 
+                    # threshold_mode='rel', cooldown=0, min_lr=0.0000001, eps=1e-08, verbose=True)
+
+    epochs = info_dic['epochs']
+    for epoch in range(epochs):  # loop over the dataset multiple times        
+        cm_trip_loss = 0.0
+        cm_cmd_loss = 0.0
+        cm_cind_loss = 0.0
+        batches = 0
+        least_loss = 100
+
+        for i, data in enumerate(dataloader, 0):
+            # get the inputs; data is a list of [inputs, labels]
+            input_tag, label_tag = data
+            inputs, labels = input_tag.to(device), label_tag.to(device) # to device kerlo input tag ko
+                        
+            outputs, cind_x = GPUnet(inputs) #(32 3 245 245)
+            x, cind_x = outputs.to(device), cind_x.to(device1)
+            cind_x = My_Modules.CIN_diff(cind_x) #([32, 128, 7, 7])
+            
+            x = torch.cat((
+            x.view(1,x.size()[0],x.size()[1]).tile((x.size()[0],1,1)),
+            x.tile(1,1,x.size()[0]).reshape(x.size()[0], x.size()[0],x.size()[1])
+            ),2).reshape(-1,x.size()[1]*2)
+            
+            cind_x = cindnet(cind_x) #[2048, 128, 35, 35]
+            cmd_outputs = cmdnet(x)
+            cmd_outputs = cmd_outputs.to(device)
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            # forward + backward + optimize
+            hard_pairs = miner(outputs, labels)
+            loss = criterion(outputs, labels, hard_pairs)
+            cind_loss = cind_criterion(cind_x,labels)
+            cmd_loss = cmd_criterion(cmd_outputs,labels)
+            total_loss = loss + cmd_loss + cind_loss
+            total_loss.backward()
+            optimizer.step()
+            
+            # print statistics
+            cm_trip_loss += loss.item()
+            cm_cmd_loss += cmd_loss.item()
+            cm_cind_loss += cind_loss.item()
+            batches  += 1
+        lr_scheduler.step(loss)
+        print('Epoch: %d, trp_loss: %.3f, cind_loss: %.3f cmd_loss: %.3f' %(epoch + 1, cm_trip_loss / batches, cm_cind_loss /batches, cm_cmd_loss / batches))
+        tb_writer.add_scalar('Trip_Loss/train', cm_trip_loss / batches, epoch+1)
+        tb_writer.add_scalar('CMD_Loss/train', cm_cmd_loss / batches, epoch+1)
+        
+        if least_loss >= ((cm_trip_loss + cm_cmd_loss) / batches):
+            least_loss = (cm_trip_loss + cm_cmd_loss) / batches
+            PATH = r'./Models/Best_' + info_dic['run_name'] + '.pth'
+            torch.save({'trunk': GPUnet.state_dict(), 'cmd': cmdnet.state_dict(), 'cind': cindnet.state_dict()}, PATH)
+
+        batches = 0
+
+    print('Finished Training')
+    
+    PATH = r'./Models/' + info_dic['run_name'] + '.pth'
+    torch.save({'trunk': GPUnet.state_dict(), 'cmd': cmdnet.state_dict()}, PATH)
+
+
+    return [GPUnet, cmdnet]
 
 def train_CMD_Dense(dataloader, net, info_dic):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
