@@ -3,22 +3,17 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from pytorch_metric_learning.distances import CosineSimilarity
-from pytorch_metric_learning.reducers import ThresholdReducer
+# from pytorch_metric_learning.reducers import ThresholdReducer
 from pytorch_metric_learning.regularizers import RegularFaceRegularizer
 from pytorch_metric_learning import losses, miners
-from densenetpytorch import My_Modules
+from densenetpytorch import My_Modules, Siamese_Modules
 
 def triplet_margin_loss():
     loss_func = losses.TripletMarginLoss(margin = 1.0, distance = CosineSimilarity(),
                 embedding_regularizer = RegularFaceRegularizer())
     miner = miners.MultiSimilarityMiner()
     return loss_func, miner
-    
-# def create_dic(names, models):
-#     model_dic = dict()
-#     for i in range(len(names)):
-#         model_dic[names[i]] = models[i]
-# return model_dic
+
 
 def train_CMDCIND_Dense(dataloader, net, info_dic):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -170,6 +165,89 @@ def train_CMD_Dense(dataloader, net, info_dic):
 
 
     return [GPUnet, cmdnet]    
+
+def train_CMDCIND_Siam(dataloader, net, info_dic):
+    # device = torch.device("cpu") ####
+    device = torch.device("cuda")
+    if torch.cuda.device_count() > 1: ####
+        GPUnet = nn.DataParallel(net[0]).to(device)
+        cindnet = nn.DataParallel(net[1]).to(device)
+        cmdnet = nn.DataParallel(net[2]).to(device)
+    # GPUnet = net[0] ####
+    # cindnet = net[1]
+    # cmdnet = net[2]
+
+    criterion, miner = triplet_margin_loss()
+    cmd_criterion = Siamese_Modules.CMDLoss
+    cind_criterion = Siamese_Modules.CINDLoss
+    parameters = list(GPUnet.parameters()) + list(cmdnet.parameters()) + list(cindnet.parameters() ) 
+    optimizer = optim.Adam(parameters, lr=0.03)
+    tb_writer = SummaryWriter(log_dir=r'./Logs/'+info_dic['run_name'])
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
+                    # ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=6, threshold=0.01, 
+                    # threshold_mode='rel', cooldown=0, min_lr=0.0000001, eps=1e-08, verbose=True)
+
+    epochs = info_dic['epochs']
+    print('Training...')
+    for epoch in range(epochs):  # loop over the dataset multiple times        
+        cm_trip_loss = 0.0
+        cm_cmd_loss = 0.0
+        cm_cind_loss = 0.0
+        batches = 0
+        least_loss = 100
+
+        for i, data in enumerate(dataloader, 0):
+            # get the inputs; data is a list of [inputs, labels]
+            images, lbls = data #shuffle data index list
+            data = [_data.to(device) for _data in images]
+            labels = [_data.to(device) for _data in lbls]
+            # print(lbls[0].data)
+            # print(lbls[1].data)
+            outputs, cind_x = GPUnet(data) #(32 3 245 245)
+            # x, cind_x = outputs, [_data.to(device) for _data in cind_x]
+            
+            # cind_x = Siamese_Modules.CIN_diff(cind_x) #([32, 128, 7, 7])
+            cind_x = cindnet(cind_x) #[2048, 128, 35, 35]
+            cmd_outputs = cmdnet(outputs)
+            cmd_outputs = cmd_outputs #.to(device)
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            # forward + backward + optimize
+            outputs, st_labels = torch.cat((outputs[0],outputs[1])), torch.cat((labels[0], labels[1]))
+            hard_pairs = miner(outputs, st_labels)
+            loss = criterion(outputs, st_labels, hard_pairs)
+            cind_loss = cind_criterion(cind_x,labels)
+            cmd_loss = cmd_criterion(cmd_outputs,labels)
+            total_loss = loss + cmd_loss + cind_loss
+            total_loss.backward()
+            optimizer.step()
+            
+            # print statistics
+            cm_trip_loss += loss.item()
+            cm_cmd_loss += cmd_loss.item()
+            cm_cind_loss += cind_loss.item()
+            batches  += 1
+        lr_scheduler.step(loss)
+        print('Epoch: %d, trp_loss: %.3f, cind_loss: %.3f cmd_loss: %.3f' %(epoch + 1, cm_trip_loss / batches, cm_cind_loss /batches, cm_cmd_loss / batches))
+        tb_writer.add_scalar('Trip_Loss/train', cm_trip_loss / batches, epoch+1)
+        tb_writer.add_scalar('CIND_Loss/train', cm_cind_loss / batches, epoch+1)
+        tb_writer.add_scalar('CMD_Loss/train', cm_cmd_loss / batches, epoch+1)
+        
+        if (least_loss > ((cm_trip_loss + cm_cmd_loss + cm_cind_loss) / batches)) and (epoch > 25):
+            least_loss = (cm_trip_loss + cm_cmd_loss + cm_cind_loss) / batches
+            PATH = r'./Models/' + info_dic['run_name'] + '_Best.pth'
+            torch.save({'trunk': GPUnet.state_dict(), 'cmd': cmdnet.state_dict(), 'cind': cindnet.state_dict()}, PATH)
+
+        batches = 0
+
+    print('Finished Training')
+    
+    PATH = r'./Models/' + info_dic['run_name'] + '.pth'
+    torch.save({'trunk': GPUnet.state_dict(), 'cmd': cmdnet.state_dict(), 'cind:': cindnet.state_dict() }, PATH)
+
+
+    return 
 
 def train(dataloader, net, info_dic):
 

@@ -1,25 +1,11 @@
 from __future__ import division
+# from Siamese_Modules import CIND, CIN_diff, CINDLoss, CMD, CMDLoss
 
-"""
-Creates a SE-DenseNet Model as defined in:
-Gao Huang, Zhuang Liu, Kilian Q. Weinberger, Laurens van der Maaten. (2016). 
-Densely Connected Convolutional Networks. 
-arXiv preprint arXiv:1608.06993.
-import from https://github.com/liuzhuang13/DenseNet
-And
-Jie Hu, Li Shen, Gang Sun. (2017)
-Squeeze-and-Excitation Networks
-Copyright (c) Yang Lu, 2017
-"""
 import math
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
-import torch
-
-__all__ = ['se_densenet', 'se_densenet121_g32', 'se_densenet169_g32', 'se_densenet201_g32',
-           'se_densenet161_g48', 'se_densenet264_g48','se_densenet121_g8i2', 'se_densenet264_g12i2']
-
+import torch, numpy
 
 class DenseBottleneck(nn.Module):
     def __init__(self, inplanes, expansion=4, growthRate=32, dropRate=0): # 64, 32 0
@@ -93,7 +79,7 @@ class Transition(nn.Module):
         out = self.avgpool(out)
         return out
 
-class My_SE_DenseNet(nn.Module):
+class Siamese_Dense(nn.Module):
     def __init__(self, growthRate=32, head7x7=True, dropOut=.4,
                  increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=256, cind = False):
         """ Constructor
@@ -101,7 +87,7 @@ class My_SE_DenseNet(nn.Module):
             layers: config of layers, e.g., (6, 12, 24, 16)
             num_classes: number of classes
         """
-        super(My_SE_DenseNet, self).__init__()
+        super(Siamese_Dense, self).__init__()
         self.cind = cind
         block = DenseBottleneck
         se_block = SEBottleneck
@@ -123,7 +109,7 @@ class My_SE_DenseNet(nn.Module):
             self.bn3 = nn.BatchNorm2d(headplanes * 2)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.red_conv = nn.Conv2d(1024, 128, 1, 1)
+        self.red_conv = nn.Conv2d(1024, 256, 1, 1)
 
         # Dense-Block 1 and transition (56x56)
         self.dense1 = self._make_layer(block, layers[0])
@@ -191,7 +177,7 @@ class My_SE_DenseNet(nn.Module):
         self.growthRate *= self.increasingRate
         return Transition(inplanes, outplanes)
 
-    def forward(self, x):
+    def _forward_one(self, x):
         if self.head7x7:
             x = self.conv1(x)
             x = self.bn1(x)
@@ -239,39 +225,35 @@ class My_SE_DenseNet(nn.Module):
             return x
         return x, cind
 
-def se_densenet(growthRate=32, head7x7=True, dropOut=0,
-                increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=1000):
-    """
-    Construct SE_DenseNet.
-    (2, 2, 2, 2) for densenet21 # growthRate=24
-    (3, 4, 6, 3) for densenet37 # growthRate=24
-    (4, 6, 8, 4) for densenet49 # growthRate=24
-    (4, 8, 16, 8) for densenet77
-    (6, 12, 24, 16) for densenet121
-    (6, 12, 32, 32) for densenet169
-    (6, 12, 48, 32) for densenet201
-    (6, 12, 64, 48) for densenet264
-    (6, 12, 36, 24) for densenet161 # growthRate=48
-    (6, 12, 64, 48) for densenet264_g48 # growthRate=48
-    note: if you use head7x7=False, the actual depth of se_densenet will increase by 2 layers.
-    """
-    model = My_SE_DenseNet(growthRate=growthRate, head7x7=head7x7, dropOut=dropOut,
-                        increasingRate=increasingRate, compressionRate=compressionRate, layers=layers,
-                        num_classes=num_classes)
-    return model
+    def forward(self, x):
+        y, cind_y = self._forward_one(x[0])
+        z, cind_z = self._forward_one(x[1])
 
-def my_se_densenet121_g32(classes, cind= False):
-    model = My_SE_DenseNet(growthRate=32, head7x7=True, dropOut=0,
+        return [y, z], [cind_y, cind_z]
+     
+
+def get_siam_dense(classes, cind= False):
+    model = Siamese_Dense(growthRate=32, head7x7=True, dropOut=0,
                         increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16),
-                        num_classes=classes,cind= cind)
+                        num_classes=classes,cind = cind)
                 # (self, growthRate=32, head7x7=True, dropRate=0,
                 # increasingRate=1, compressionRate=2, layers=(6, 12, 24, 16), num_classes=1000)
     
     return model
 
-# model = my_se_densenet121_g32(50)
+# model = get_siam_dense(256, cind = True)
 
-# x = torch.rand(128, 3, 224, 224)
-# y = model(x)
+# x = torch.rand(64, 3, 224, 224)
+# y = torch.rand(64, 3, 224, 224)
+# lbl = torch.rand(64, 1)
+# x, y = model([x,y])
 
-# print(y)
+# cind_x = CIN_diff(x[1], y[1])
+# cind_net = CIND()
+# cind_y = cind_net(cind_x)
+# cind_loss = CINDLoss(cind_y, [lbl, lbl])
+# print(cind_loss)
+
+# cmd_net = CMD()
+# cmd_y = cmd_net([x[0], y[0]])
+# cmd_loss = CMDLoss(cmd_y, [lbl,lbl]) 

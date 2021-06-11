@@ -13,7 +13,7 @@
 12,DenseCMD,Triplet,SMMD,"Vis,IRR",0,DenseCMD
 13,DenseCMD,Triplet,IRIS,"Vis,The",0,DenseCMD
 14,DenseCMD,Triplet,CASIA,"Vis,IRR",0,DenseCMD
-15,DenseCMDCIND,Triplet,SMMD,"Vis,The",1,CIND
-16,DenseCMDCIND,Triplet,SMMD,"Vis,IRR",1,CIND
-17,DenseCMDCIND,Triplet,IRIS,"Vis,The",1,CIND
-18,DenseCMDCIND,Triplet,CASIA,"Vis,IRR",1,CIND
+15,SiamCMDCIND,Triplet,SMMD,"Vis,The",1,CIND
+16,SiamCMDCIND,Triplet,SMMD,"Vis,IRR",1,CIND
+17,SiamCMDCIND,Triplet,IRIS,"Vis,The",1,CIND
+18,SiamCMDCIND,Triplet,CASIA,"Vis,IRR",1,CIND
